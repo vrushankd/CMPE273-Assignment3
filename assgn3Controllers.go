@@ -98,54 +98,68 @@ func (uc UserController) PlanTrip(w http.ResponseWriter, r *http.Request, p http
 		tmpDestMap[i], _ = strconv.Atoi(destcordsarr[i])
 	}
 
-	for outer := 0; outer < len(destcordsarr); outer++ {
-
+	for outer := 0; outer <= len(destcordsarr); outer++ {
 		var (
 			costmap     = make(map[int]int)
 			durationmap = make(map[int]int)
 			distancemap = make(map[int]float64)
 		)
-
 		startcoords := getCoordinates(strtointcords)
 		startlatlong := strings.Split(startcoords, ",")
 
-		for it := 0; it < len(destcordsarr); it++ {
-			if strtointcords == tmpDestMap[it] || tmpBestRouteMap[destcordsarr[it]] != "" {
-				continue
-			} else {
-				strtointdestcords, _ := strconv.Atoi(destcordsarr[it])
-				destcords := getCoordinates(strtointdestcords)
-				destlatlong := strings.Split(destcords, ",")
-				response, err := http.Get("https://sandbox-api.uber.com/v1/estimates/price?start_latitude=" + startlatlong[0] + "&start_longitude=" + startlatlong[1] + "&end_latitude=" + destlatlong[0] + "&end_longitude=" + destlatlong[1] + "&server_token=SKXhsZoJQI-TYb52bFo8_SeGHhk2B2bwQSHvmM8g")
+		if outer == len(destcordsarr) {
 
-				if err != nil {
-					fmt.Printf("%s", err)
-					os.Exit(1)
+			strtointdestcords, _ := strconv.Atoi(req.StartLocationID)
+			destcords := getCoordinates(strtointdestcords)
+			destlatlong := strings.Split(destcords, ",")
+			response, _ := http.Get("https://sandbox-api.uber.com/v1/estimates/price?start_latitude=" + startlatlong[0] + "&start_longitude=" + startlatlong[1] + "&end_latitude=" + destlatlong[0] + "&end_longitude=" + destlatlong[1] + "&server_token=SKXhsZoJQI-TYb52bFo8_SeGHhk2B2bwQSHvmM8g")
+			defer response.Body.Close()
+			contents, _ := ioutil.ReadAll(response.Body)
+
+			json.Unmarshal([]byte(contents), &jsonResp)
+			costmap[strtointdestcords] = jsonResp.Prices[0].LowEstimate
+			durationmap[strtointdestcords] = jsonResp.Prices[0].Duration
+			distancemap[strtointdestcords] = jsonResp.Prices[0].Distance
+
+		} else {
+
+			for it := 0; it < len(destcordsarr); it++ {
+				if strtointcords == tmpDestMap[it] || tmpBestRouteMap[destcordsarr[it]] != "" {
+					continue
 				} else {
-					defer response.Body.Close()
-					contents, err := ioutil.ReadAll(response.Body)
+					strtointdestcords, _ := strconv.Atoi(destcordsarr[it])
+					destcords := getCoordinates(strtointdestcords)
+					destlatlong := strings.Split(destcords, ",")
+					response, err := http.Get("https://sandbox-api.uber.com/v1/estimates/price?start_latitude=" + startlatlong[0] + "&start_longitude=" + startlatlong[1] + "&end_latitude=" + destlatlong[0] + "&end_longitude=" + destlatlong[1] + "&server_token=SKXhsZoJQI-TYb52bFo8_SeGHhk2B2bwQSHvmM8g")
+
 					if err != nil {
 						fmt.Printf("%s", err)
 						os.Exit(1)
-					}
-					json.Unmarshal([]byte(contents), &jsonResp)
+					} else {
+						defer response.Body.Close()
+						contents, err := ioutil.ReadAll(response.Body)
+						if err != nil {
+							fmt.Printf("%s", err)
+							os.Exit(1)
+						}
+						json.Unmarshal([]byte(contents), &jsonResp)
 
-					if strings.Contains(string(contents), "start_longitude") {
-						fmt.Println("Start Cordinate: ", strtointcords)
-						fmt.Println("Destination Loc: ", strtointdestcords)
-						fmt.Println("Distance exceeded 100 miles..Check your cordinates")
-						os.Exit(1)
+						if strings.Contains(string(contents), "start_longitude") {
+							fmt.Println("Start Cordinate: ", strtointcords)
+							fmt.Println("Destination Loc: ", strtointdestcords)
+							fmt.Println("Distance exceeded 100 miles..Check your cordinates")
+							os.Exit(1)
+						}
+						costmap[strtointdestcords] = jsonResp.Prices[0].LowEstimate
+						durationmap[strtointdestcords] = jsonResp.Prices[0].Duration
+						distancemap[strtointdestcords] = jsonResp.Prices[0].Distance
 					}
-					costmap[strtointdestcords] = jsonResp.Prices[0].LowEstimate
-					durationmap[strtointdestcords] = jsonResp.Prices[0].Duration
-					distancemap[strtointdestcords] = jsonResp.Prices[0].Distance
 				}
 			}
 		}
 
 		var sortcostmap PairList
 		sortcostmap = sortMapByValue(costmap)
-
 		if len(sortcostmap) > 1 {
 			if sortcostmap[0].Value < sortcostmap[1].Value {
 				destresultcords[outer] = strconv.Itoa(sortcostmap[0].Key)
@@ -171,7 +185,7 @@ func (uc UserController) PlanTrip(w http.ResponseWriter, r *http.Request, p http
 					destresultcords[outer] = strconv.Itoa(sortcostmap[0].Key)
 				}
 			}
-		} else {
+		} else if outer < len(destcordsarr) {
 			destresultcords[outer] = strconv.Itoa(sortcostmap[0].Key)
 		}
 
@@ -179,7 +193,7 @@ func (uc UserController) PlanTrip(w http.ResponseWriter, r *http.Request, p http
 		finalcostmap[outer] = sortcostmap[0].Value
 		finaldurationmap[outer] = durationmap[sortcostmap[0].Key]
 		finaldistancemap[outer] = distancemap[sortcostmap[0].Key]
-		strtointcords, _ = strconv.Atoi(destresultcords[outer])
+		strtointcords = sortcostmap[0].Key
 	}
 
 	for _, value := range finalcostmap {
@@ -286,6 +300,7 @@ func (uc UserController) CheckTrip(w http.ResponseWriter, r *http.Request, p htt
 //CheckNextDestination for PUT operation
 func (uc UserController) CheckNextDestination(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	fmt.Println("******************************PUT***************************")
+	var prodResp assgn3Models.ProductResp
 	var allcordinatesmap = make(map[int]string)
 	var respsandbox assgn3Models.Respsandbox
 	//connect to mongodb in cloud using mongolab
@@ -368,76 +383,93 @@ func (uc UserController) CheckNextDestination(w http.ResponseWriter, r *http.Req
 
 	spltnextDestCords := strings.Split(nextDestCords, ",")
 
-	var jsonStr = []byte(`{"start_latitude":"` + spltstartCords[0] + `","start_longitude":"` + spltstartCords[1] + `","end_latitude":"` + spltnextDestCords[0] + `","end_longitude":"` + spltnextDestCords[1] + `","product_id":"04a497f5-380d-47f2-bf1b-ad4cfdcb51f2"}`)
+	response, err := http.Get("https://sandbox-api.uber.com/v1/products?latitude=" + spltstartCords[0] + "&longitude=" + spltstartCords[1] + "&server_token=SKXhsZoJQI-TYb52bFo8_SeGHhk2B2bwQSHvmM8g")
 
-	urlreq := "https://sandbox-api.uber.com/v1/requests"
-	req, err := http.NewRequest("POST", urlreq, bytes.NewBuffer(jsonStr))
-	req.Header.Set("Authorization", "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzY29wZXMiOlsiaGlzdG9yeV9saXRlIiwiaGlzdG9yeSIsInByb2ZpbGUiLCJkZWxpdmVyeSIsInJlcXVlc3RfcmVjZWlwdCIsImRlbGl2ZXJ5X3NhbmRib3giLCJyZXF1ZXN0Il0sInN1YiI6IjAxMjhiYjE1LTIxZTgtNDQwMi1hOWU3LTgwNDI1MGVlNjgzOSIsImlzcyI6InViZXItdXMxIiwianRpIjoiOTMzMzM5ZjItZGJkOC00YWRjLThiOTQtZGU2NDY1ODdkOWU4IiwiZXhwIjoxNDQ5NjMxODAzLCJpYXQiOjE0NDcwMzk4MDMsInVhY3QiOiJORU1uS3ZVVkpCWjc1RG1lTmRYb2Yzcm5qQjhmYUsiLCJuYmYiOjE0NDcwMzk3MTMsImF1ZCI6IjBwV0Jpa1pBNE8tVGRzR1dESXQ5V284NXdwV19uelllIn0.lrlPNUa5hIucgSGduNqkXoPUATg_ePKK4iCw8X7ZEFz85HFzFvgvqtDDYiwIlkRPz0bFO0RxJYwm620aA8WOxe4jmweD0j3g7IaenaLpKD5Q8DLqma1C1SrKUc8yehDIYVe4bSYa1Y8luoo-4F56c5prrHuseoIr-asWxmtmASw1GoOQW0Ae7n1sMD-HIXiv2EPlUXN0c3Ir0tqnUNL7f61ptqBm1e9EKUnodFWNy7W0CWiY0aRtCO2LNyuAaDpdK7S_LAQbgjtDVQ_CFrs2qa6TB0s_fJ50IlW9NUfMX4ttV7y8mpULCRbryXTiSxiXv8UnklBgw-5NjOKgay4hDw")
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
 	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-	body, errmesg := ioutil.ReadAll(resp.Body)
-
-	if errmesg != nil {
 		fmt.Printf("%s", err)
 		os.Exit(1)
-	}
-	json.Unmarshal([]byte(body), &respsandbox)
-
-	etaWait := respsandbox.Eta
-	requestID := respsandbox.ReqID
-
-	putURL := "https://sandbox-api.uber.com/v1/sandbox/requests/" + requestID
-	var putmesg = []byte(`{"status":"accepted"}`)
-	reqmesg, _ := http.NewRequest("PUT", putURL, bytes.NewBuffer(putmesg))
-	reqmesg.Header.Set("Authorization", "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzY29wZXMiOlsiaGlzdG9yeV9saXRlIiwiaGlzdG9yeSIsInByb2ZpbGUiLCJkZWxpdmVyeSIsInJlcXVlc3RfcmVjZWlwdCIsImRlbGl2ZXJ5X3NhbmRib3giLCJyZXF1ZXN0Il0sInN1YiI6IjAxMjhiYjE1LTIxZTgtNDQwMi1hOWU3LTgwNDI1MGVlNjgzOSIsImlzcyI6InViZXItdXMxIiwianRpIjoiOTMzMzM5ZjItZGJkOC00YWRjLThiOTQtZGU2NDY1ODdkOWU4IiwiZXhwIjoxNDQ5NjMxODAzLCJpYXQiOjE0NDcwMzk4MDMsInVhY3QiOiJORU1uS3ZVVkpCWjc1RG1lTmRYb2Yzcm5qQjhmYUsiLCJuYmYiOjE0NDcwMzk3MTMsImF1ZCI6IjBwV0Jpa1pBNE8tVGRzR1dESXQ5V284NXdwV19uelllIn0.lrlPNUa5hIucgSGduNqkXoPUATg_ePKK4iCw8X7ZEFz85HFzFvgvqtDDYiwIlkRPz0bFO0RxJYwm620aA8WOxe4jmweD0j3g7IaenaLpKD5Q8DLqma1C1SrKUc8yehDIYVe4bSYa1Y8luoo-4F56c5prrHuseoIr-asWxmtmASw1GoOQW0Ae7n1sMD-HIXiv2EPlUXN0c3Ir0tqnUNL7f61ptqBm1e9EKUnodFWNy7W0CWiY0aRtCO2LNyuAaDpdK7S_LAQbgjtDVQ_CFrs2qa6TB0s_fJ50IlW9NUfMX4ttV7y8mpULCRbryXTiSxiXv8UnklBgw-5NjOKgay4hDw")
-	reqmesg.Header.Set("Content-Type", "application/json")
-
-	clientPUT := &http.Client{}
-	Resp, err := clientPUT.Do(reqmesg)
-	if err != nil {
-		panic(err)
-	}
-	defer Resp.Body.Close()
-
-	responsePut := assgn3Models.NextDestination{}
-
-	disp := assgn3Models.NextDestination{
-		ID:                        u.ID,
-		Status:                    status,
-		StartLocationID:           strLoc,
-		NextDestinationLocationID: allcordinatesmap[nextDestCount],
-		BestRouteLocationID:       u.BestRouteLocationID,
-		TotalCost:                 u.TotalCost,
-		TotalDuration:             u.TotalDuration,
-		TotalDistance:             u.TotalDistance,
-		ETA:                       etaWait,
-	}
-
-	finderrput := collection3.FindId(intID).One(&responsePut)
-
-	if finderrput != nil {
-		collection3.Insert(disp)
 	} else {
-		err = collection3.Update(bson.M{"_id": intID}, disp)
+		defer response.Body.Close()
+		contents, err := ioutil.ReadAll(response.Body)
+
 		if err != nil {
-			fmt.Printf("Can't update document %v\n", err)
+			fmt.Printf("%s", err)
 			os.Exit(1)
 		}
+		json.Unmarshal([]byte(contents), &prodResp)
+		pid := prodResp.Products[0].ProductID
+
+		var jsonStr = []byte(`{"start_latitude":"` + spltstartCords[0] + `","start_longitude":"` + spltstartCords[1] + `","end_latitude":"` + spltnextDestCords[0] + `","end_longitude":"` + spltnextDestCords[1] + `","product_id":"` + pid + `"}`)
+
+		urlreq := "https://sandbox-api.uber.com/v1/requests"
+		req, err := http.NewRequest("POST", urlreq, bytes.NewBuffer(jsonStr))
+		req.Header.Set("Authorization", "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzY29wZXMiOlsiaGlzdG9yeV9saXRlIiwiaGlzdG9yeSIsInByb2ZpbGUiLCJkZWxpdmVyeSIsInJlcXVlc3RfcmVjZWlwdCIsImRlbGl2ZXJ5X3NhbmRib3giLCJyZXF1ZXN0Il0sInN1YiI6IjAxMjhiYjE1LTIxZTgtNDQwMi1hOWU3LTgwNDI1MGVlNjgzOSIsImlzcyI6InViZXItdXMxIiwianRpIjoiOTMzMzM5ZjItZGJkOC00YWRjLThiOTQtZGU2NDY1ODdkOWU4IiwiZXhwIjoxNDQ5NjMxODAzLCJpYXQiOjE0NDcwMzk4MDMsInVhY3QiOiJORU1uS3ZVVkpCWjc1RG1lTmRYb2Yzcm5qQjhmYUsiLCJuYmYiOjE0NDcwMzk3MTMsImF1ZCI6IjBwV0Jpa1pBNE8tVGRzR1dESXQ5V284NXdwV19uelllIn0.lrlPNUa5hIucgSGduNqkXoPUATg_ePKK4iCw8X7ZEFz85HFzFvgvqtDDYiwIlkRPz0bFO0RxJYwm620aA8WOxe4jmweD0j3g7IaenaLpKD5Q8DLqma1C1SrKUc8yehDIYVe4bSYa1Y8luoo-4F56c5prrHuseoIr-asWxmtmASw1GoOQW0Ae7n1sMD-HIXiv2EPlUXN0c3Ir0tqnUNL7f61ptqBm1e9EKUnodFWNy7W0CWiY0aRtCO2LNyuAaDpdK7S_LAQbgjtDVQ_CFrs2qa6TB0s_fJ50IlW9NUfMX4ttV7y8mpULCRbryXTiSxiXv8UnklBgw-5NjOKgay4hDw")
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+		body, errmesg := ioutil.ReadAll(resp.Body)
+
+		if errmesg != nil {
+			fmt.Printf("%s", err)
+			os.Exit(1)
+		}
+		json.Unmarshal([]byte(body), &respsandbox)
+
+		etaWait := respsandbox.Eta
+		requestID := respsandbox.ReqID
+
+		putURL := "https://sandbox-api.uber.com/v1/sandbox/requests/" + requestID
+		var putmesg = []byte(`{"status":"accepted"}`)
+		reqmesg, _ := http.NewRequest("PUT", putURL, bytes.NewBuffer(putmesg))
+		reqmesg.Header.Set("Authorization", "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzY29wZXMiOlsiaGlzdG9yeV9saXRlIiwiaGlzdG9yeSIsInByb2ZpbGUiLCJkZWxpdmVyeSIsInJlcXVlc3RfcmVjZWlwdCIsImRlbGl2ZXJ5X3NhbmRib3giLCJyZXF1ZXN0Il0sInN1YiI6IjAxMjhiYjE1LTIxZTgtNDQwMi1hOWU3LTgwNDI1MGVlNjgzOSIsImlzcyI6InViZXItdXMxIiwianRpIjoiOTMzMzM5ZjItZGJkOC00YWRjLThiOTQtZGU2NDY1ODdkOWU4IiwiZXhwIjoxNDQ5NjMxODAzLCJpYXQiOjE0NDcwMzk4MDMsInVhY3QiOiJORU1uS3ZVVkpCWjc1RG1lTmRYb2Yzcm5qQjhmYUsiLCJuYmYiOjE0NDcwMzk3MTMsImF1ZCI6IjBwV0Jpa1pBNE8tVGRzR1dESXQ5V284NXdwV19uelllIn0.lrlPNUa5hIucgSGduNqkXoPUATg_ePKK4iCw8X7ZEFz85HFzFvgvqtDDYiwIlkRPz0bFO0RxJYwm620aA8WOxe4jmweD0j3g7IaenaLpKD5Q8DLqma1C1SrKUc8yehDIYVe4bSYa1Y8luoo-4F56c5prrHuseoIr-asWxmtmASw1GoOQW0Ae7n1sMD-HIXiv2EPlUXN0c3Ir0tqnUNL7f61ptqBm1e9EKUnodFWNy7W0CWiY0aRtCO2LNyuAaDpdK7S_LAQbgjtDVQ_CFrs2qa6TB0s_fJ50IlW9NUfMX4ttV7y8mpULCRbryXTiSxiXv8UnklBgw-5NjOKgay4hDw")
+		reqmesg.Header.Set("Content-Type", "application/json")
+
+		clientPUT := &http.Client{}
+		Resp, err := clientPUT.Do(reqmesg)
+		if err != nil {
+			panic(err)
+		}
+		defer Resp.Body.Close()
+
+		responsePut := assgn3Models.NextDestination{}
+
+		disp := assgn3Models.NextDestination{
+			ID:                        u.ID,
+			Status:                    status,
+			StartLocationID:           strLoc,
+			NextDestinationLocationID: allcordinatesmap[nextDestCount],
+			BestRouteLocationID:       u.BestRouteLocationID,
+			TotalCost:                 u.TotalCost,
+			TotalDuration:             u.TotalDuration,
+			TotalDistance:             u.TotalDistance,
+			ETA:                       etaWait,
+		}
+
+		finderrput := collection3.FindId(intID).One(&responsePut)
+
+		if finderrput != nil {
+			collection3.Insert(disp)
+		} else {
+			err = collection3.Update(bson.M{"_id": intID}, disp)
+			if err != nil {
+				fmt.Printf("Can't update document %v\n", err)
+				os.Exit(1)
+			}
+		}
+
+		// Marshal provided interface into JSON structure
+		uj, _ := json.Marshal(disp)
+
+		// Write content-type, statuscode, payload
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		fmt.Fprintf(w, "%s", uj)
 	}
-
-	// Marshal provided interface into JSON structure
-	uj, _ := json.Marshal(disp)
-
-	// Write content-type, statuscode, payload
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	fmt.Fprintf(w, "%s", uj)
 }
 
 //getCoordinates to fetch cordinates from mongodb

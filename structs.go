@@ -96,7 +96,7 @@ type Response struct {
 	} `json:"prices"`
 }
 
-/*ProductResp struct
+//ProductResp struct
 type ProductResp struct {
 	Products []struct {
 		Capacity     int    `json:"capacity"`
@@ -118,4 +118,4 @@ type ProductResp struct {
 		} `json:"price_details"`
 		ProductID string `json:"product_id"`
 	} `json:"products"`
-}*/
+}
